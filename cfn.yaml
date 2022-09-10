@@ -1,0 +1,211 @@
+AWSTemplateFormatVersion: 2010-09-09
+
+Parameters:
+  ProjectName:
+    Description: Name of project, MUST be lowercased
+    Type: String
+    Default: default-project
+  Password:
+    NoEcho: true
+    Type: String
+    Description: New account password
+    MinLength: 1
+    MaxLength: 41
+  
+
+Resources:
+  # The storage place for data, trained weights, output, etc.
+  DataBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      AccelerateConfiguration:
+        AccelerationStatus: "Suspended"
+      AccessControl: "Private"
+      BucketName: !Sub "${ProjectName}-data"
+      VersioningConfiguration:
+        Status: "Suspended"
+
+  # CI need data for testing purpose
+  CiUser:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: !Sub "ci@${ProjectName}"
+  CiUserKeys:
+    Type: AWS::IAM::AccessKey
+    Properties:
+      UserName: !Ref CiUser
+
+  # as the name already states
+  DataBucketReadOnlyAccessPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      Users:
+        - !Ref CiUser
+      PolicyDocument: 
+        Version: "2012-10-17"
+        Statement:
+          - Sid: DataBucketReadOnlyAccessPolicy
+            Effect: Allow 
+            Action: 
+              - "s3:List*"
+              - "s3:Get*"
+            Resource: 
+              - !GetAtt DataBucket.Arn    
+              - !Sub "${DataBucket.Arn}/"
+      PolicyName: DataBucketReadOnlyAccessPolicy
+
+  # IAM Group for developers in your team.
+  EngineerGroup:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: EngineerGroup
+      ManagedPolicyArns:
+        # TODO: limit this power
+        - arn:aws:iam::aws:policy/AmazonEC2FullAccess
+
+  # as the name already states
+  DataBucketFullAccessPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      Groups:
+        - !Ref EngineerGroup
+      PolicyName: DataBucketFullAccessPolicy
+      PolicyDocument: 
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowListAllBuckets
+            Effect: Allow 
+            Action: "s3:List*"
+            Resource: "*"
+          - Sid: AllowFullAccessDataBucket
+            Effect: Allow 
+            Action: "s3:*"
+            Resource: 
+              - !GetAtt DataBucket.Arn
+              - !Sub "${DataBucket.Arn}/"
+
+  EnforceMFAPolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      Groups:
+        - !Ref EngineerGroup
+      PolicyName: EnforceMFA001
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowViewAccountInfo
+            Effect: Allow 
+            Action:
+              - "iam:GetAccountPasswordPolicy"
+              - "iam:GetAccountSummary"
+              - "iam:ListVirtualMFADevices"
+            Resource: "*"
+          - Sid: AllowManageOwnPasswords
+            Effect: Allow 
+            Action: 
+              - "iam:ChangePassword"
+              - "iam:GetUser"
+            Resource: "*"
+          - Sid: AllowManageOwnAccessKeys
+            Effect: Allow
+            Action:
+              - "iam:CreateAccessKey"
+              - "iam:DeleteAccessKey"
+              - "iam:ListAccessKeys"
+              - "iam:UpdateAccessKey"
+            Resource: "arn:aws:iam::*:user/${aws:username}"
+          - Sid: AllowManageOwnSigningCertificates
+            Effect: Allow
+            Action: 
+              - "iam:DeleteSigningCertificate"
+              - "iam:ListSigningCertificates"
+              - "iam:UpdateSigningCertificate"
+              - "iam:UploadSigningCertificate"
+            Resource: "arn:aws:iam::*:user/${aws:username}"
+          - Sid: AllowManageOwnSSHPublicKeys
+            Effect: Allow
+            Action: 
+              - "iam:DeleteSSHPublicKey"
+              - "iam:GetSSHPublicKey"
+              - "iam:ListSSHPublicKeys"
+              - "iam:UpdateSSHPublicKey"
+              - "iam:UploadSSHPublicKey"
+            Resource: "arn:aws:iam::*:user/${aws:username}"
+          - Sid: AllowManageOwnGitCredentials
+            Effect: Allow
+            Action:
+              - "iam:CreateServiceSpecificCredential"
+              - "iam:DeleteServiceSpecificCredential"
+              - "iam:ListServiceSpecificCredentials"
+              - "iam:ResetServiceSpecificCredential"
+              - "iam:UpdateServiceSpecificCredential"
+            Resource: "arn:aws:iam::*:user/${aws:username}"
+          - Sid: AllowManageOwnVirtualMFADevice
+            Effect: Allow
+            Action:
+              - "iam:CreateVirtualMFADevice"
+              - "iam:DeleteVirtualMFADevice"
+            Resource: "arn:aws:iam::*:mfa/${aws:username}"
+          - Sid: AllowManageOwnUserMFA
+            Effect: Allow
+            Action: 
+              - "iam:DeactivateMFADevice"
+              - "iam:EnableMFADevice"
+              - "iam:ListMFADevices"
+              - "iam:ResyncMFADevice"
+            Resource: "arn:aws:iam::*:user/${aws:username}"
+          # TODO: try to open this
+          # - Sid: DenyAllExceptListedIfNoMFA
+          #   Effect: Deny
+          #   NotAction: 
+          #     - "iam:CreateVirtualMFADevice"
+          #     - "iam:EnableMFADevice"
+          #     - "iam:GetUser"
+          #     - "iam:ListMFADevices"
+          #     - "iam:ListVirtualMFADevices"
+          #     - "iam:ResyncMFADevice"
+          #     - "sts:GetSessionToken"
+          #     - "iam:ChangePassword"
+          #     - "iam:GetUser"
+          #   Resource: "*"
+          #   Condition:
+          #     Bool:
+          #       "aws:MultiFactorAuthPresent": "false"
+          #       "aws:ViaAWSService": "false"
+
+  Dev1:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: !Sub "dev1@${ProjectName}"
+      LoginProfile: 
+        Password: !Ref Password
+      Groups:
+        - !Ref EngineerGroup
+
+  Dev2:
+    Type: AWS::IAM::User
+    Properties:
+      UserName: !Sub "dev12${ProjectName}"
+      LoginProfile: 
+        Password: !Ref Password
+      Groups:
+        - !Ref EngineerGroup
+
+
+
+Outputs:
+  AccountID:
+    Value: !Ref AWS::AccountId
+  Dev1:
+    Value: !Ref Dev1
+  Dev2:
+    Value: !Ref Dev2
+  Password:
+    Value: !Ref Password
+  DataBucketName:
+    Value: !Ref DataBucket
+    Description: Name of the sample Amazon S3 bucket with a lifecycle configuration.
+  CiS3ReadOnlyAccessKey:
+    Value: !Ref CiUserKeys
+  CiS3ReadOnlySecretKey:
+    Value: !GetAtt [CiUserKeys, SecretAccessKey]
