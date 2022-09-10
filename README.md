@@ -9,7 +9,7 @@ This CloudFormation template will create the following AWS resource for a generi
 ```bash
 aws cloudformation create-stack \
     --stack-name ml-project-stack \
-    --template-body file://iam.yaml \
+    --template-body file://cfn.yaml \
     --capabilities CAPABILITY_NAMED_IAM \
     --parameters ParameterKey=Password,ParameterValue=$(openssl rand -base64 15)
 ```
